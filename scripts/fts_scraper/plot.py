@@ -21,7 +21,7 @@ with open("out.csv", 'r') as f:
                 parsed_throughput = float(throughput.replace('KiB/s', '').strip())/1E3
             if 'bytes/s' in throughput:
                 parsed_throughput = float(throughput.replace('bytes/s', '').strip())/1E6
-            if np.isclose(parsed_throughput, 0) or parsed_throughput<1:
+            if np.isclose(parsed_throughput, 0) or parsed_throughput<0:
                 parsed_throughput = np.nan
 
             timestamps.append(datetime.datetime.strptime(timestamp, timestamp_format))
@@ -30,7 +30,7 @@ with open("out.csv", 'r') as f:
             continue
 
 plt.plot(timestamps, throughputs, '-')
-plt.fill_between(timestamps, throughputs, step="pre", alpha=0.4)
+#plt.fill_between(timestamps, throughputs, step="pre", alpha=0.4)
 plt.show()
 
 

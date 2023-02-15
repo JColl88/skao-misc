@@ -1,4 +1,4 @@
 # What is this?
 
-This is a repository of misc scripts related to SKAO work.
+This is a repository of one-off scripts and experiments related to SKAO work that don't warrant their own repository.
 
