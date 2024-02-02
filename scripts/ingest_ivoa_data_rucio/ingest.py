@@ -1,25 +1,38 @@
+import json
 import os
+import pprint
+import urllib.request
+
+import progressbar
 import requests
 import urllib3
 
-import progressbar
-import pprint
-import urllib.request
-from rucio.client.didclient import DIDClient
-from rucio.client.uploadclient import UploadClient
-
 DATASET_PREFIX='RAC'
 ATTEMPT='001'
-RUCIO_SCOPE='testing_ingest_180723'
-RUCIO_RSE='STFC_STORM_ND'
+RUCIO_SCOPE='testing'
+RUCIO_RSE='STFC_STORM'
 RUCIO_LIFETIME=31560000
 PFN_BASE_PATH='https://srcdev.skatelescope.org:443/storm/sa/test_rse/dev/nondeterministic'
-CADC_OBSCORE_URL='https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/argus/sync?LANG=ADQL&FORMAT=csv&QUERY=select%20*%20from%20ivoa.ObsCore%20C%20join%20ivoa.ObsFile%20F%20on%20C.core_id%20=%20F.core_id%20where%20obs_collection=%20%27RACS%27'
-LIMIT=250
+CATALOGUE = 'WALLABY'  # e.g. WALLABY, VGPS, CGPS, VLASS, RACS...
+LIMIT=5
 
-TRY_GET_DATA=True
-DO_UPLOAD_AND_REGISTER=True
-ADD_METADATA=True
+limit_str = ('%20LIMIT%20{}'.format(LIMIT) if LIMIT else '')
+CADC_OBSCORE_URL='''
+https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/argus/sync\
+?LANG=ADQL&FORMAT=csv&QUERY=select%20*%20from%20ivoa.ObsCore%20C%20\
+join%20ivoa.ObsFile%20F%20on%20C.core_id%20=%20F.core_id%20\
+where%20obs_collection=%20%27{}%27{}\
+'''.format(CATALOGUE, limit_str)
+
+CREATE_METADATA=True
+TRY_GET_DATA=False
+DO_UPLOAD_AND_REGISTER=False
+ADD_METADATA=False
+
+# Only need rucio client if attempting upload
+if DO_UPLOAD_AND_REGISTER:
+    from rucio.client.didclient import DIDClient
+    from rucio.client.uploadclient import UploadClient
 
 # ---
 
@@ -76,15 +89,27 @@ for entry in metadata:
 # make access url point to rucio datalink service
 for entry in metadata:
     entry['cadc_access_url'] = entry['access_url']
-    rucio_name = '{}{}'.format(RUCIO_NAME_PREFIX, entry['obs_id']).replace('+', 'p')
+    uri = entry['uri'].split('/')[-1]
+    rucio_name = '{}'.format(uri).replace('+', 'p')
     rucio_did = '{}:{}'.format(RUCIO_SCOPE, rucio_name)
     entry['access_url'] = "https://ivoa.datalink.srcdev.skao.int/rucio/links?id={}".format(rucio_did)
 
-# remove any non-obscore fields
+# remove any non-obscore fields and dump out to .meta file
+# The .meta file can be used by ska-src-ingestion
 for entry in metadata:
-    entry.pop('uri')
     entry.pop('core_id')
     entry.pop('lastModified')
+
+    uri = entry['uri'].split('/')[-1]
+
+    rucio_name = '{}'.format(uri).replace('+', 'p')
+
+    entry['namespace'] = RUCIO_SCOPE
+    entry['name'] = rucio_name
+    entry['lifetime'] = RUCIO_LIFETIME
+    if CREATE_METADATA:
+        with open('{}.meta'.format(rucio_name), 'w') as metafile:
+            json.dump(entry, metafile, indent=4)
 
 # get total # of files
 print("total # of files: {}".format(len(metadata)))
@@ -97,8 +122,9 @@ print("total size of dataset: {}GB".format((size/(10**9))))
 
 # evaluate cadc datalink response and get file
 data_paths = []
-for entry in metadata[:LIMIT]:
-    rucio_name = entry['obs_id']
+for entry in metadata:
+    uri = entry['uri'].split('/')[-1]
+    rucio_name = '{}'.format(uri).replace('+', 'p')
     if not os.path.exists(rucio_name):
         if TRY_GET_DATA:
             try:
@@ -134,7 +160,7 @@ with open("registered_files", 'a') as f:
             didclient.add_dataset(scope=RUCIO_SCOPE, name=RUCIO_DATASET_NAME, lifetime=RUCIO_LIFETIME)
         except Exception as e:
             print(e)
-        for data_entry, metadata_entry in zip(data_paths[:LIMIT], metadata[:LIMIT]):
+        for data_entry, metadata_entry in zip(data_paths, metadata):
             if data_entry:
                 rucio_name = '{}{}'.format(RUCIO_NAME_PREFIX, metadata_entry['obs_id']).replace('+', 'p')
                 rucio_did = '{}:{}'.format(RUCIO_SCOPE, rucio_name)
@@ -172,7 +198,7 @@ with open("registered_files", 'a') as f:
 
 # add metadata to files
 if ADD_METADATA:
-    for data_entry, metadata_entry in zip(data_paths[:LIMIT], metadata[:LIMIT]):
+    for data_entry, metadata_entry in zip(data_paths, metadata):
         if data_entry:
             rucio_name = '{}{}'.format(RUCIO_NAME_PREFIX, metadata_entry['obs_id']).replace('+', 'p')
             rucio_did = '{}:{}'.format(RUCIO_SCOPE, rucio_name)
